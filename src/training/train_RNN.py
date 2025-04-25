@@ -9,6 +9,7 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from matplotlib import pyplot as plt
 from argparse import ArgumentParser
+from tqdm import tqdm
 
 # import local modules
 sys.path.append(os.path.abspath(os.path.dirname(os.path.dirname(__file__)))) # this appends 'src' to the path
@@ -56,7 +57,8 @@ def main(args):
         # Training phase
         model.train()
         running_loss = 0.0
-        for batch_idx, (x_batch, y_batch) in enumerate(train_loader):
+
+        for batch_idx, (x_batch, y_batch) in enumerate(tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.num_epochs} - Training", ncols=100)):
             x_batch, y_batch = x_batch.to(args.device), y_batch.to(args.device)
 
             # Forward pass
@@ -76,8 +78,9 @@ def main(args):
         # Validation phase
         model.eval()
         val_loss = 0.0
+
         with torch.no_grad():
-            for x_batch, y_batch in val_loader:
+            for x_batch, y_batch in tqdm(val_loader, desc=f"Epoch {epoch+1}/{args.num_epochs} - Validation", ncols=100):
                 x_batch, y_batch = x_batch.to(args.device), y_batch.to(args.device)
                 output = model(x_batch)
                 loss = criterion(output, y_batch)
@@ -101,11 +104,12 @@ def main(args):
     logger.log_df(pd.DataFrame(train_metrics), "train_metrics.csv")
     logger.log_df(pd.DataFrame(val_metrics), "val_metrics.csv")
 
-    # Optionally, you can test the model here
+    # Testing
     model.eval()
     test_loss = 0.0
+
     with torch.no_grad():
-        for x_batch, y_batch in test_loader:
+        for x_batch, y_batch in tqdm(test_loader, desc="Testing", ncols=100):
             x_batch, y_batch = x_batch.to(args.device), y_batch.to(args.device)
             output = model(x_batch)
             loss = criterion(output, y_batch)
