@@ -87,8 +87,8 @@ class DatasetMaker:
         self.y = self.y[:-1]
 
         # normalize the features
-        self.mean = self.x.mean(dim=0)
-        self.std = self.x.std(dim=0)
+        self.mean = self.x.mean(axis=0)
+        self.std = self.x.std(axis=0)
         self.x = (self.x - self.mean) / self.std
 
         # convert to torch tensors
