@@ -1,6 +1,7 @@
 import os
 import json
 from datetime import datetime
+import time
 import pandas as pd
 
 class Logger:
@@ -18,8 +19,31 @@ class Logger:
             with open(os.path.join(self.run_dir, "args.json"), "w") as f:
                 json.dump(args_dict, f, indent=4)
 
+        # Initialize timing logs
+        self.start_time = None
+        self.end_time = None
+        self.time_taken = None
+
+    def start_timer(self):
+        self.start_time = time.time()
+
+    def stop_timer(self):
+        self.end_time = time.time()
+        self.time_taken = self.end_time - self.start_time
+
+    def log_time(self):
+        # Save the time information into a log file
+        time_info = {
+            "start_time": datetime.fromtimestamp(self.start_time).strftime("%Y-%m-%d %H:%M:%S"),
+            "end_time": datetime.fromtimestamp(self.end_time).strftime("%Y-%m-%d %H:%M:%S"),
+            "time_taken_seconds": self.time_taken,
+        }
+        with open(os.path.join(self.run_dir, "time_log.json"), "w") as f:
+            json.dump(time_info, f, indent=4)
+
     def log_df(self, df: pd.DataFrame, filename):
         df.to_csv(os.path.join(self.run_dir, filename), index=True)
 
     def get_run_dir(self):
         return self.run_dir
+

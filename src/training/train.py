@@ -8,23 +8,41 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
+import random
 
 # import local modules
 sys.path.append(os.path.abspath(os.path.dirname(os.path.dirname(__file__)))) # this appends 'src' to the path
 from data.dataset import DatasetMaker, BaseDataset
 from models.rnn import RNNModel
+from models.mlp import MLPModel
+from models.lstm import LSTMModel
 from logger.logger import Logger
 
 from matplotlib import pyplot as plt
 from argparse import ArgumentParser
 from tqdm import tqdm
 
+MODELS = {
+    "rnn": RNNModel,
+    "lstm": LSTMModel,
+    "mlp": MLPModel
+}
+
 def main(args):
+    # Set all seeds for maximal reproducibility
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+    random.seed(args.seed)
+    if args.device == "cuda":
+        torch.cuda.manual_seed_all(args.seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+
     # Initialize the logger
     logger = Logger(save_dir=args.log_dir, run_name=args.run_name, args=args)
 
     # Load the dataset
-    dataset_maker = DatasetMaker(data_path=args.data_path, val_days=args.val_days, test_days=args.test_days, seq_len=args.seq_len, inited=~args.process_data)
+    dataset_maker = DatasetMaker(data_path=args.data_path, val_days=args.val_days, test_days=args.test_days, seq_len=args.seq_len, inited = not args.process_data)
 
     # Create data loaders for training, validation, and testing
     dataloaders = dataset_maker.get_dataloaders()
@@ -36,27 +54,29 @@ def main(args):
     test_loader = dataloaders['test']
 
     # Initialize the model
-    model = RNNModel(input_dim=train_data[0][0].shape[-1],  # Input size: number of features in the data
-                     hidden_dim=args.hidden_dim,
-                     num_layers=args.num_layers,
-                     output_dim=1).to(args.device)  # Assuming 1 output (e.g., the open price for the next day)
+    if args.model_type not in MODELS:
+        raise ValueError(f"Model type {args.model_type} not recognized. Choose from {list(MODELS.keys())}.")
+    else:
+        model_class = MODELS[args.model_type]
+        model = model_class(input_dim=train_data[0][0].shape[-1], hidden_dim=args.hidden_dim, seq_len=args.seq_len, output_dim=1, num_layers=args.num_layers, dropout=args.dropout).to(args.device)
 
-    # Load pre-trained model if specified
-    if args.load_model and os.path.exists(args.model_path):
-        model.load_state_dict(torch.load(args.model_path))
+    # Load pre-trained model
+    model_path = os.path.join(args.log_dir, args.run_name, "model.pth")
+    if args.load_model and os.path.exists(model_path):
+        model.load_state_dict(torch.load(model_path))
         print("Pre-trained model loaded.")
 
     # Define the loss function and optimizer
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=10, factor=0.5)
 
-    # Start training
+    # Training
     best_val_loss = float('inf')
     train_metrics = []
     val_metrics = []
 
     for epoch in range(args.num_epochs):
-        # Training phase
         model.train()
         running_loss = 0.0
 
@@ -74,10 +94,10 @@ def main(args):
 
             running_loss += loss.item()
 
-        avg_train_loss = running_loss / len(train_loader)
+        avg_train_loss = running_loss / (len(train_loader) * args.batch_size)
         print(f"Epoch {epoch+1}/{args.num_epochs}, Training Loss: {avg_train_loss:.4f}")
 
-        # Validation phase
+        # Validation
         model.eval()
         val_loss = 0.0
 
@@ -88,8 +108,9 @@ def main(args):
                 loss = criterion(output, y_batch)
                 val_loss += loss.item()
 
-        avg_val_loss = val_loss / len(val_loader)
+        avg_val_loss = val_loss / (len(val_loader) * args.batch_size)
         print(f"Epoch {epoch+1}/{args.num_epochs}, Validation Loss: {avg_val_loss:.4f}")
+        # scheduler.step(avg_val_loss)
 
         # Store metrics for logging
         train_metrics.append({'epoch': epoch + 1, 'train_loss': avg_train_loss})
@@ -99,8 +120,12 @@ def main(args):
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
             if args.save_model:
-                torch.save(model.state_dict(), args.model_path)
+                model_path = os.path.join(args.log_dir, args.run_name, "model.pth")
+                torch.save(model.state_dict(), model_path)
                 print(f"Model saved at epoch {epoch+1}")
+
+        # update the learning rate
+        
 
     # Log metrics to CSV files
     logger.log_df(pd.DataFrame(train_metrics), "train_metrics.csv")
@@ -116,6 +141,7 @@ def main(args):
         for x_batch, y_batch in tqdm(test_loader, desc="Testing", ncols=100):
             x_batch, y_batch = x_batch.to(args.device), y_batch.to(args.device)
             output = model(x_batch)
+
             loss = criterion(output, y_batch)
             test_loss += loss.item()
             outputs["predictions"].append(output.cpu().numpy())
@@ -153,13 +179,15 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=0.001, help="Learning rate for the optimizer")
     parser.add_argument("--hidden_dim", type=int, default=64, help="Hidden dimension for the RNN model")
     parser.add_argument("--num_layers", type=int, default=2, help="Number of layers for the RNN model")
-    parser.add_argument("--model_path", type=str, default="models/rnn_model.pth", help="Path to save the trained model")
     parser.add_argument("--load_model", action="store_true", help="Load a pre-trained model")
     parser.add_argument("--save_model", action="store_true", help="Save the trained model")
     parser.add_argument("--process_data", action="store_true", help="Process data before training")
     parser.add_argument("--device", type=str, default="cpu", help="Device to use for training (cpu or cuda)")
     parser.add_argument("--run_name", type=str, default=None, help="Name of the run for logging")
     parser.add_argument("--log_dir", type=str, default="logs", help="Directory to save logs")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+    parser.add_argument("--dropout", type=float, default=0.5, help="Dropout rate for the RNN model" )
+    parser.add_argument("--model_type", type=str, choices=MODELS.keys(), default="rnn", help="Type of model to use (rnn, lstm, mlp)")
 
     args = parser.parse_args()
     print(f"Arguments: {args}")

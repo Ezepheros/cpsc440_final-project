@@ -1,16 +1,16 @@
 import torch.nn as nn
 
-class RNNModel(nn.Module):
+class LSTMModel(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim, num_layers=2, dropout=0.5, **kwargs):
-        super(RNNModel, self).__init__()
+        super(LSTMModel, self).__init__()
         self.pre_layer_norm = nn.LayerNorm(input_dim)
-        self.rnn = nn.RNN(
+        self.lstm = nn.LSTM(
             input_dim,
             hidden_dim,
             num_layers,
             batch_first=True,
-            nonlinearity='relu',
-            dropout=dropout if num_layers > 1 else 0.0  # RNN only applies dropout if num_layers > 1
+            dropout=dropout if num_layers > 1 else 0.0,
+            device='cuda'  # LSTM handles dropout across layers
         )
         self.layer_norm = nn.LayerNorm(hidden_dim)
         self.dropout = nn.Dropout(dropout)
@@ -19,7 +19,7 @@ class RNNModel(nn.Module):
     def forward(self, x):
         # x shape: (batch_size, seq_len, input_dim)
         x = self.pre_layer_norm(x)
-        out, _ = self.rnn(x)
+        out, _ = self.lstm(x)
         out = out[:, -1, :]  # Take output of last timestep
         out = self.layer_norm(out)
         out = self.dropout(out)

@@ -77,19 +77,24 @@ class DatasetMaker:
         self.data['day'] = self.data['date'].dt.day
         self.data.drop(columns=['date'], inplace=True)
 
+        # normalize the features
+        # self.mean = self.data.mean(axis=0)
+        # self.std = self.data.std(axis=0)
+        # self.data = (self.data - self.mean) / self.std
+
         # split the data into features and target variable
         self.x = self.data
         # the target variable is the open price, to create it, we need to shift the data by one day
         self.y = self.data['open'].shift(-1)
 
-        # drop the last row of the data, as it will not have a target variable
-        self.x = self.x[:-1]
-        self.y = self.y[:-1]
-
         # normalize the features
         self.mean = self.x.mean(axis=0)
         self.std = self.x.std(axis=0)
-        self.x = (self.x - self.mean) / self.std
+        self.data = (self.x - self.mean) / self.std
+
+        # drop the last row of the data, as it will not have a target variable
+        self.x = self.x[:-1]
+        self.y = self.y[:-1]
 
         # convert to torch tensors
         self.x = torch.tensor(self.x.values, dtype=torch.float32)
